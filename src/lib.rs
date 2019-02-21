@@ -1,6 +1,6 @@
 #![feature(asm)]
 #![feature(exclusive_range_pattern)]
-use std::borrow::Cow;
+
 use std::io::Write;
 use std::str;
 
@@ -21,7 +21,7 @@ fn rand_char() -> char {
 }
 
 fn random(end: usize) -> usize {
-    if (end == 0) {
+    if end == 0 {
         return 0;
     }
 
@@ -54,15 +54,15 @@ fn sufscore(a: &str, b: &str) -> usize {
     let mut alen = a.len();
     let mut blen = b.len();
     for (a_char, b_char) in a.chars().zip(b.chars()) {
-        if (n < AIMAX) {
+        if n < AIMAX {
             break;
         }
 
-        if (a_char == b_char) {
+        if a_char == b_char {
             break;
         }
 
-        if (a_char != last) {
+        if a_char != last {
             last = a_char;
             n += 32;
         }
@@ -78,13 +78,13 @@ fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
     let mut best_score = 0;
     let mut score = 0;
     let rounds = 0;
-    if (fend == 0) {
+    if fend == 0 {
         *jump = 0;
         *land = random(tend);
         return;
     }
 
-    if (tend == 0) {
+    if tend == 0 {
         *land = 0;
         return;
     }
@@ -105,7 +105,7 @@ fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
         }
 
         score = sufscore(&from[j..], &to[l..]);
-        if (score > best_score) {
+        if score > best_score {
             best_score = score;
             *jump = j;
             *land = l;
@@ -123,18 +123,74 @@ fn random_block<'a>(data: &'a str, samples: Vec<&'a str>) -> &'a str {
 
     let start = random(rand_sample.len() - 2);
     let mut len = rand_sample.len() - start;
-    if (len > 4 * data.len()) {
+    if len > 4 * data.len() {
         len = 4 * data.len();
     }
     len = random(len);
     &rand_sample[start..]
 }
 
+/// Returns the start and end indeces of a random number in the buffer
+fn seek_num(data: &str) -> Option<(usize, usize)> {
+    let end = data.len();
+    let rand_start = random(end);
+    let mut start_index = None;
+    let mut end_index = None;
+    for (i, c) in data[rand_start..].char_indices() {
+        match (c, start_index) {
+            // First time seeing a number
+            ('0'..'9', None) => start_index = Some(i + rand_start),
+
+            // Still seeing a number, continue
+            ('0'..'9', Some(_)) => continue,
+
+            // Saw some number, and are no longer seeing digits
+            (_, Some(_)) => {
+                end_index = Some(i + rand_start);
+                break;
+            }
+
+            // Everything else
+            _ => continue,
+        }
+    }
+
+    if let (Some(start), Some(end)) = (start_index, end_index) {
+        // If found both start and end, deconstruct to a single Option
+        Some((start, end))
+    } else {
+        // No number found
+        None
+    }
+}
+
+/// Randomly changes or bit flips a number
+fn twiddle(val: usize) -> i64 {
+    let mut result = val as i64;
+    loop {
+        match random(3) {
+            // Make a new random i64 number
+            0 => result = random(i64::max_value() as usize) as i64,
+            // Flip one of the result bits
+            1 => result ^= 1 << random(64 - 1),
+            // Add a number relatively close to 0
+            2 => result += random(5) as i64 - 2,
+            _ => continue,
+        }
+
+        // Continue twiddling 50% of the time
+        if rdrand() & 1 == 0 {
+            break;
+        }
+    }
+    result
+}
+
 pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
     let mut end = data.len();
     loop {
-        let r = rdrand() % 24;
-        // let r = 24;
+        // let r = rdrand() % 24;
+        let r = 26;
         println!("r: {}", r);
         match r {
             // match 7 {
@@ -149,7 +205,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             1 => {
                 // Delete a random byte
                 let position = random(end);
-                if (position + 1 >= end) {
+                if position + 1 >= end {
                     continue;
                 }
                 write!(output, "{}", &data[..position]);
@@ -158,9 +214,11 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             }
             2..4 => {
                 // Jump / Overlapping sequences
-                if (end == 0) {
+                if end == 0 {
                     continue;
                 }
+
+                // Generate two random numbers where a < b
                 let (a, b) = two_rand_numbers(end);
                 write!(output, "{}", &data[..a]);
                 write!(output, "{}", &data[b..]);
@@ -168,25 +226,34 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             }
             4..6 => {
                 // Repeat characters
-                if (end == 0) {
+                if end == 0 {
                     continue;
                 }
 
                 let mut n = 8;
-                while (rdrand() & 1 == 0 && n < 20000) {
+                while rdrand() & 1 == 0 && n < 20000 {
                     n <<= 1;
                 }
 
                 n = rdrand() % n + 2;
-                let (a, b) = two_rand_numbers(end);
-                let mut len = b - a;
-                if (len * n > 134217728) {
+
+                // Generate two random numbers where a < b
+                let (s, e) = two_rand_numbers(end);
+                let mut len = e - s;
+
+                write!(output, "{}", &data[..s]);
+
+                if len * n > 0x8000000 {
                     len = rdrand() % 1024 + 2;
                 }
-                for _ in 0..len {
-                    write!(output, "{}", &data[a..a + len]);
+
+                // Insert some substring `n` times
+                for _ in 0..n {
+                    write!(output, "{}", &data[s..s + len]);
                 }
-                write!(output, "{}", &data[..a]);
+
+                // Write the rest of the string
+                write!(output, "{}", &data[s..]);
                 return;
             }
             6 => {
@@ -202,7 +269,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             }
             7..13 => {
                 // Aimed jump to self
-                if (end < 5) {
+                if end < 5 {
                     continue;
                 }
 
@@ -216,7 +283,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
                 return;
             }
             13..22 => {
-                if (end < 8) {
+                if end < 8 {
                     continue;
                 }
 
@@ -238,7 +305,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             }
             22..24 => {
                 // Insert semirandom bytes
-                if (end == 0) {
+                if end == 0 {
                     continue;
                 }
 
@@ -248,7 +315,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
                     n = random(n);
                 }
 
-                if (n == 0) {
+                if n == 0 {
                     n = 2;
                 }
                 write!(output, "{}", &data[..position]);
@@ -261,12 +328,12 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             }
             24 => {
                 // Overwrite semirandom bytes
-                if (end < 2) {
+                if end < 2 {
                     continue;
                 }
 
                 let a = random(end - 2);
-                let b = match (rdrand() & 1) {
+                let b = match rdrand() & 1 {
                     0 => random(std::cmp::min(BUFSIZE - 2, end - a - 2)) + a + 2,
                     _ => random(32) + a + 2,
                 };
@@ -274,12 +341,63 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
                 write!(output, "{}", &data[..a]);
                 for _ in a..b {
                     let r = random(end - 1);
-                    // Don't have easy access to a single character in &str
+
+                    // Access to a single character in &str
                     write!(output, "{}", &data[r..r + 1]);
                 }
-                if (end > b) {
+
+                // Possible b can be longer than data
+                if end > b {
                     write!(output, "{}", &data[b..]);
                 }
+                return;
+            }
+            25..29 => {
+                if end == 0 {
+                    continue;
+                }
+
+                let mut result = None;
+
+                // Attempt to find a number at a random location in the data buffer
+                for _ in 0..random(AIMROUNDS) {
+                    if result.is_some() {
+                        break;
+                    }
+
+                    result = seek_num(data);
+                }
+
+                match result {
+                    Some((num_start, num_end)) => {
+                        println!("{} -> {}", data, &data[num_start..num_end]);
+                        // Write the data before the number
+                        write!(output, "{}", &data[..num_start]);
+
+                        // Try to parse the found number into a usize
+                        if let Ok(num) = data[num_start..num_end].parse::<usize>() {
+                            // Write the twiddled number
+                            let twiddled = if num == 0 { twiddle(0) } else { twiddle(num) };
+                            println!("{} -> {}", num, twiddled);
+                            write!(output, "{}", twiddled);
+                        }
+
+                        // Write the rest of the buffer
+                        write!(output, "{}", &data[num_end..]);
+                    }
+                    _ => {
+                        // Did not find a number in the data buffer
+                        // Continue to try a different mutation method
+                        println!("Did not find number");
+                        continue;
+                    }
+                }
+
+                return;
+            }
+            29..35 => {
+                // delimited swap
+
                 return;
             }
             _ => unimplemented!(),

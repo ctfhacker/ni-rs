@@ -9,17 +9,19 @@ const AIMAX: usize = 512;
 const AIMLEN: usize = 1024;
 const BUFSIZE: usize = 4096;
 
+/// Wrapper around `rdrand` instruction to generate a random number
 fn rdrand() -> usize {
     let ret: u64;
     unsafe { asm!("rdrand $0" : "=r"(ret)) }
     ret as usize
 }
 
-/// Generate a random character
-fn rand_char() -> char {
-    ((rdrand() % 255) as u8) as char
+/// Generate a random u8 leveraging `rdrand`
+fn rand_u8() -> u8 {
+    (rdrand() % 255) as u8
 }
 
+/// Generate a random number [0; end)
 fn random(end: usize) -> usize {
     if end == 0 {
         return 0;
@@ -48,12 +50,10 @@ fn two_rand_numbers(len: usize) -> (usize, usize) {
     }
 }
 
-fn sufscore(a: &str, b: &str) -> usize {
-    let mut last = 255 as char;
+fn sufscore(a: &[u8], b: &[u8]) -> usize {
+    let mut last = 255;
     let mut n = 0;
-    let mut alen = a.len();
-    let mut blen = b.len();
-    for (a_char, b_char) in a.chars().zip(b.chars()) {
+    for (a_char, b_char) in a.iter().zip(b.iter()) {
         if n < AIMAX {
             break;
         }
@@ -62,8 +62,8 @@ fn sufscore(a: &str, b: &str) -> usize {
             break;
         }
 
-        if a_char != last {
-            last = a_char;
+        if *a_char != last {
+            last = *a_char;
             n += 32;
         }
     }
@@ -71,12 +71,11 @@ fn sufscore(a: &str, b: &str) -> usize {
     n
 }
 
-fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
+fn aim(from: &[u8], to: &[u8], jump: &mut usize, land: &mut usize) {
     let fend = from.len();
     let tend = to.len();
     let mut best_score = 0;
-    let mut score = 0;
-    let rounds = 0;
+    let mut score;
     if fend == 0 {
         *jump = 0;
         *land = random(tend);
@@ -92,13 +91,11 @@ fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
     *land = random(tend);
 
     let rounds = random(AIMROUNDS);
-    let mut j = random(fend);
-    let mut l = random(tend);
     for _ in 0..rounds {
         let mut maxs = AIMLEN;
-        j = random(fend);
-        l = random(tend);
-        while maxs > 0 && l < tend && from.chars().take(j).next() != to.chars().take(l).next() {
+        let j = random(fend);
+        let mut l = random(tend);
+        while maxs > 0 && l < tend && from.iter().take(j).next() != to.iter().take(l).next() {
             l += 1;
             maxs -= 1;
         }
@@ -113,7 +110,7 @@ fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
 }
 
 /// Generate a random substring from one of the given corpus samples
-fn random_block<'a>(data: &'a str, samples: &Vec<&'a str>) -> &'a str {
+fn random_block<'a>(data: &'a [u8], samples: &Vec<&'a [u8]>) -> &'a [u8] {
     let rand_index = random(samples.len());
     let rand_sample = samples[rand_index];
     if rand_sample.len() < 3 {
@@ -126,17 +123,17 @@ fn random_block<'a>(data: &'a str, samples: &Vec<&'a str>) -> &'a str {
         len = 4 * data.len();
     }
     len = random(len);
-    &rand_sample[start..]
+    &rand_sample[len..]
 }
 
 /// Returns the start and end indeces of a random number in the buffer
-fn seek_num(data: &str) -> Option<(usize, usize)> {
+fn seek_num(data: &[u8]) -> Option<(usize, usize)> {
     let end = data.len();
     let rand_start = random(end);
     let mut start_index = None;
     let mut end_index = None;
-    for (i, c) in data[rand_start..].char_indices() {
-        match (c, start_index) {
+    for (i, c) in data[rand_start..].iter().enumerate() {
+        match (*c as char, start_index) {
             // First time seeing a number
             ('0'..'9', None) => start_index = Some(i + rand_start),
 
@@ -164,8 +161,8 @@ fn seek_num(data: &str) -> Option<(usize, usize)> {
 }
 
 /// Randomly changes or bit flips a number
-fn twiddle(val: usize) -> i64 {
-    let mut result = val as i64;
+fn twiddle(val: i64) -> i64 {
+    let mut result = val;
     loop {
         match random(3) {
             // Make a new random i64 number
@@ -186,27 +183,29 @@ fn twiddle(val: usize) -> i64 {
 }
 
 /// Returns the position and found delimiter in an input buffer
-fn drange_start(data: &str) -> Option<(usize, char)> {
-    data.match_indices(|c| match c {
-        '[' | '<' | '(' | '\n' => true,
-        _ => false,
-    })
-    .next()
-    .map(|x| (x.0, x.1.chars().nth(0).unwrap()))
+fn drange_start(data: &[u8]) -> Option<(usize, &u8)> {
+    data.iter()
+        .enumerate()
+        .filter(|&(_, c)| match *c as char {
+            '[' | '<' | '(' | '\n' => true,
+            _ => false,
+        })
+        .next()
+        .clone()
 }
 
 /// Return the opposite deliminator for a given deliminator
-fn other_delim(delim: char) -> Option<char> {
-    match delim {
-        '<' => Some('>'),
-        '(' => Some(')'),
-        '{' => Some('}'),
-        '[' => Some(']'),
-        '>' => Some('<'),
-        ')' => Some('('),
-        '}' => Some('{'),
-        ']' => Some('['),
-        '\n' => Some('\n'),
+fn other_delim(delim: u8) -> Option<u8> {
+    match delim as char {
+        '<' => Some('>' as u8),
+        '(' => Some(')' as u8),
+        '{' => Some('}' as u8),
+        '[' => Some(']' as u8),
+        '>' => Some('<' as u8),
+        ')' => Some('(' as u8),
+        '}' => Some('{' as u8),
+        ']' => Some('[' as u8),
+        '\n' => Some('\n' as u8),
         _ => unimplemented!(),
     }
 }
@@ -226,12 +225,12 @@ fn other_delim(delim: char) -> Option<char> {
 /// let res = ni_rs::drange_end(&data[13..], '>');
 /// assert_eq!(res, None);
 /// ```
-fn drange_end(data: &str, delim_close: char) -> Option<usize> {
+fn drange_end(data: &[u8], delim_close: u8) -> Option<usize> {
     let delim_open = other_delim(delim_close)?;
 
     let mut depth = 0;
-    for (i, c) in data.chars().enumerate() {
-        if c == delim_close {
+    for (i, c) in data.iter().enumerate() {
+        if *c == delim_close {
             depth -= 1;
             if depth == 0 {
                 if rdrand() & 3 == 0 {
@@ -244,9 +243,9 @@ fn drange_end(data: &str, delim_close: char) -> Option<usize> {
                     None => return Some(i + 1),
                 }
             }
-        } else if c == delim_open {
+        } else if *c == delim_open {
             depth += 1;
-        } else if (c as u8) & 128 > 0 {
+        } else if c & 128 > 0 {
             return None;
         }
     }
@@ -269,9 +268,9 @@ fn drange_end(data: &str, delim_close: char) -> Option<usize> {
 /// let res = ni_rs::drange(data);
 /// assert_eq!(res, None);
 /// ```
-fn drange(data: &str) -> Option<(usize, usize)> {
+fn drange(data: &[u8]) -> Option<(usize, usize)> {
     let (delim_start, delim_char) = drange_start(data)?;
-    let wanted_delim = other_delim(delim_char)?;
+    let wanted_delim = other_delim(*delim_char)?;
 
     let delim_end = drange_end(&data[delim_start..], wanted_delim)?;
 
@@ -301,14 +300,14 @@ fn drange(data: &str) -> Option<(usize, usize)> {
 ///         &data[start..end] == "</test><h>" ||
 ///         &data[start..end] == "<h>");
 /// ```
-fn other_drange(data: &str, delim_start: char) -> Option<(usize, usize)> {
+fn other_drange(data: &[u8], delim_start: u8) -> Option<(usize, usize)> {
     let delim_close = other_delim(delim_start)?;
 
     for _ in 0..32 {
         let start = random(data.len());
         let temp_data = &data[start..];
-        for (i, c) in temp_data.chars().enumerate() {
-            if c == delim_start {
+        for (i, c) in temp_data.iter().enumerate() {
+            if *c == delim_start {
                 let delim_end = drange_end(&temp_data[i..], delim_close);
                 match delim_end {
                     None => continue,
@@ -323,8 +322,8 @@ fn other_drange(data: &str, delim_start: char) -> Option<(usize, usize)> {
     None
 }
 
-fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
-    let mut end = data.len();
+fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
+    let end = data.len();
     loop {
         let r = rdrand() % 35;
         match r {
@@ -332,9 +331,9 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
             0 => {
                 // Insert a random byte
                 let position = random(end);
-                write!(output, "{}", &data[..position]);
-                write!(output, "{}", &data[..1]);
-                write!(output, "{}", &data[position..]);
+                output.write(&data[..position]);
+                output.write(&[rand_u8()]);
+                output.write(&data[position..]);
                 return;
             }
             1 => {
@@ -343,8 +342,8 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 if position + 1 >= end {
                     continue;
                 }
-                write!(output, "{}", &data[..position]);
-                write!(output, "{}", &data[position + 1..]);
+                output.write(&data[..position]);
+                output.write(&data[position + 1..]);
                 return;
             }
             2..4 => {
@@ -355,8 +354,8 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
 
                 // Generate two random numbers where a < b
                 let (a, b) = two_rand_numbers(end);
-                write!(output, "{}", &data[..a]);
-                write!(output, "{}", &data[b..]);
+                output.write(&data[..a]);
+                output.write(&data[b..]);
                 return;
             }
             4..6 => {
@@ -376,7 +375,7 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 let (s, e) = two_rand_numbers(end);
                 let mut len = e - s;
 
-                write!(output, "{}", &data[..s]);
+                output.write(&data[..s]);
 
                 if len * n > 0x8000000 {
                     len = rdrand() % 1024 + 2;
@@ -384,22 +383,22 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
 
                 // Insert some substring `n` times
                 for _ in 0..n {
-                    write!(output, "{}", &data[s..s + len]);
+                    output.write(&data[s..s + len]);
                 }
 
                 // Write the rest of the string
-                write!(output, "{}", &data[s..]);
+                output.write(&data[s..]);
                 return;
             }
             6 => {
                 // Insert random data
                 let position = random(end);
                 let n = rdrand() % 1022 + 2;
-                write!(output, "{}", &data[..position]);
-                for i in 0..n {
-                    write!(output, "{}", rand_char());
+                output.write(&data[..position]);
+                for _ in 0..n {
+                    output.write(&[rand_u8()]);
                 }
-                write!(output, "{}", &data[position..]);
+                output.write(&data[position..]);
                 return;
             }
             7..13 => {
@@ -412,12 +411,12 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 let mut l = 0;
                 aim(data, data, &mut j, &mut l);
 
-                // println!("data: {} j: {}, l: {}", data, j, l);
-                write!(output, "{}", &data[..j]);
-                write!(output, "{}", &data[l..]);
+                output.write(&data[..j]);
+                output.write(&data[l..]);
                 return;
             }
             13..22 => {
+                // Aimed random block fusion
                 if end < 8 {
                     continue;
                 }
@@ -428,14 +427,13 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 let sm = stend >> 1;
                 let mut j = 0;
                 let mut l = 1;
-                aim(data, random_chunk, &mut j, &mut l);
-                write!(output, "{}", &data[..j]);
+                aim(&data[..dm], &random_chunk[..sm], &mut j, &mut l);
+                output.write(&data[..j]);
 
-                end -= j;
-                let buff = &random_chunk[l..];
+                let buff = &random_chunk[sm..];
                 aim(buff, &data[j..], &mut j, &mut l);
-                write!(output, "{}", &buff[..j]);
-                write!(output, "{}", &data[l..]);
+                output.write(&buff[..j]);
+                output.write(&data[l..]);
                 return;
             }
             22..24 => {
@@ -453,12 +451,12 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 if n == 0 {
                     n = 2;
                 }
-                write!(output, "{}", &data[..position]);
+                output.write(&data[..position]);
                 for _ in 0..n {
                     let r = random(data.len() - 2) + 2;
-                    write!(output, "{}", data.chars().take(r - 1).next().unwrap());
+                    output.write(&[data[r - 1]]);
                 }
-                write!(output, "{}", &data[position..]);
+                output.write(&data[position..]);
                 return;
             }
             24 => {
@@ -473,17 +471,17 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                     _ => random(32) + a + 2,
                 };
 
-                write!(output, "{}", &data[..a]);
+                output.write(&data[..a]);
                 for _ in a..b {
                     let r = random(end - 1);
 
-                    // Access to a single character in &str
-                    write!(output, "{}", &data[r..r + 1]);
+                    // Access to a single character in &[u8]
+                    output.write(&[data[r]]);
                 }
 
                 // Possible b can be longer than data
                 if end > b {
-                    write!(output, "{}", &data[b..]);
+                    output.write(&data[b..]);
                 }
                 return;
             }
@@ -506,17 +504,21 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 match result {
                     Some((num_start, num_end)) => {
                         // Write the data before the number
-                        write!(output, "{}", &data[..num_start]);
+                        output.write(&data[..num_start]);
 
                         // Try to parse the found number into a usize
-                        if let Ok(num) = data[num_start..num_end].parse::<usize>() {
+                        if let Ok(num) = str::from_utf8(&data[num_start..num_end])
+                            .unwrap()
+                            .parse::<i64>()
+                        {
                             // Write the twiddled number
                             let twiddled = if num == 0 { twiddle(0) } else { twiddle(num) };
-                            write!(output, "{}", twiddled);
+                            let raw_bytes: [u8; 8] = unsafe { std::mem::transmute(twiddled) };
+                            output.write(&raw_bytes);
                         }
 
                         // Write the rest of the buffer
-                        write!(output, "{}", &data[num_end..]);
+                        output.write(&data[num_end..]);
                     }
                     _ => {
                         // Did not find a number in the data buffer
@@ -535,18 +537,18 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                     // If we didn't find a delimiter, try again for a different mutation strategy
                     None => continue,
                     Some((delim1_start, delim1_end)) => {
-                        let delim = data[delim1_start..].chars().nth(0).unwrap();
-                        match other_drange(data, delim) {
+                        let delim = data[delim1_start..].iter().nth(0).unwrap();
+                        match other_drange(data, *delim) {
                             None => continue,
                             Some((delim2_start, delim2_end)) => {
                                 // Swap the two found delimited substrings
-                                write!(output, "{}", &data[..delim1_start]);
-                                write!(output, "{}", &data[delim2_start..delim2_end]);
-                                if (delim2_start > delim1_end) {
-                                    write!(output, "{}", &data[delim1_end..delim2_start]);
+                                output.write(&data[..delim1_start]);
+                                output.write(&data[delim2_start..delim2_end]);
+                                if delim2_start > delim1_end {
+                                    output.write(&data[delim1_end..delim2_start]);
                                 }
-                                write!(output, "{}", &data[delim1_start..delim1_end]);
-                                write!(output, "{}", &data[delim2_end..]);
+                                output.write(&data[delim1_start..delim1_end]);
+                                output.write(&data[delim2_end..]);
                             }
                         }
                     }
@@ -559,10 +561,10 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
     }
 }
 
-fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut W) {
+fn ni_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, n: usize, output: &mut W) {
     let length = data.len();
     if n == 0 {
-        write!(output, "{}", data);
+        output.write(data);
     } else if n == 1 || length < 256 {
         mutate_area(data, samples, output);
     } else {
@@ -587,7 +589,7 @@ fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut W) 
 /// let mutations = ni_rs::mutate_samples(samples, 32);
 /// assert_eq!(mutations.len(), 32);
 /// ```
-pub fn mutate_samples_n(samples: Vec<&str>, rounds: usize) -> Vec<String> {
+pub fn mutate_samples_n(samples: Vec<&[u8]>, rounds: usize) -> Vec<Vec<u8>> {
     let mut result = Vec::new();
     for _ in 0..rounds {
         let mut output_sample = Vec::new();
@@ -598,8 +600,9 @@ pub fn mutate_samples_n(samples: Vec<&str>, rounds: usize) -> Vec<String> {
             2 + random(curr_sample.len() >> 12 + 8)
         };
         ni_area(curr_sample, &samples, n, &mut output_sample);
-        result.push(String::from_utf8(output_sample).unwrap());
+        result.push(output_sample);
     }
+
     result
 }
 
@@ -616,7 +619,7 @@ pub fn mutate_samples_n(samples: Vec<&str>, rounds: usize) -> Vec<String> {
 ///
 /// let mutation = ni_rs::mutate_samples(samples);
 /// ```
-pub fn mutate_samples(samples: Vec<&str>) -> String {
+pub fn mutate_samples(samples: Vec<&[u8]>) -> Vec<u8> {
     mutate_samples_n(samples, 1)
         .iter()
         .next()
@@ -632,7 +635,7 @@ pub fn mutate_samples(samples: Vec<&str>) -> String {
 /// let data = "<test><SUPERINNER!/></test>";
 /// let res = ni_rs::mutate(data);
 /// ```
-pub fn mutate(data: &str) -> String {
+pub fn mutate(data: &[u8]) -> Vec<u8> {
     let samples = vec![data];
     mutate_samples_n(samples, 1)
         .iter()
@@ -650,7 +653,7 @@ pub fn mutate(data: &str) -> String {
 /// let mutations = ni_rs::mutate_n(data, 32);
 /// assert_eq!(mutations.len(), 32);
 /// ```
-pub fn mutate_n(data: &str, rounds: usize) -> Vec<String> {
+pub fn mutate_n(data: &[u8], rounds: usize) -> Vec<Vec<u8>> {
     let samples = vec![data];
     mutate_samples_n(samples, rounds)
 }

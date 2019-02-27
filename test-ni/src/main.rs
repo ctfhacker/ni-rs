@@ -1,10 +1,9 @@
-extern crate ni_rs;
-use std::str;
+use std::fs::File;
+use std::io::Write;
 
 fn main() {
-    let buffer = "<xml>test1234</xml>";
-    let mut output = Vec::new();
-    let samples = vec![buffer, "<xml>NUMTWO</xml>"];
-    ni_rs::mutate_area(buffer, samples, &mut output);
-    println!("{} -> {}", buffer, str::from_utf8(&output).unwrap());
+    let input = include_bytes!("input");
+    let muts = ni_rs::mutate(input);
+    let mut f = File::create("output").ok().unwrap();
+    f.write(&muts);
 }

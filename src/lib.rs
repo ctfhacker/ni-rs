@@ -72,7 +72,6 @@ fn sufscore(a: &str, b: &str) -> usize {
 }
 
 fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
-    println!("In aim");
     let fend = from.len();
     let tend = to.len();
     let mut best_score = 0;
@@ -114,7 +113,7 @@ fn aim(from: &str, to: &str, jump: &mut usize, land: &mut usize) {
 }
 
 /// Generate a random substring from one of the given corpus samples
-fn random_block<'a>(data: &'a str, samples: Vec<&'a str>) -> &'a str {
+fn random_block<'a>(data: &'a str, samples: &Vec<&'a str>) -> &'a str {
     let rand_index = random(samples.len());
     let rand_sample = samples[rand_index];
     if rand_sample.len() < 3 {
@@ -186,11 +185,161 @@ fn twiddle(val: usize) -> i64 {
     result
 }
 
-pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
+/// Returns the position and found delimiter in an input buffer
+///
+/// # Example
+///
+/// ```
+/// let data = "Example HTML <test></test>";
+/// let res = ni_rs::drange_start(data);
+/// assert_eq!(res, Some((13, '<')));
+///
+/// let data = "Example HTML - not here";
+/// let res = ni_rs::drange_start(data);
+/// assert_eq!(res, None);
+/// ```
+pub fn drange_start(data: &str) -> Option<(usize, char)> {
+    data.match_indices(|c| match c {
+        '[' | '<' | '(' | '\n' => true,
+        _ => false,
+    })
+    .next()
+    .map(|x| (x.0, x.1.chars().nth(0).unwrap()))
+}
+
+/// Return the opposite deliminator for a given deliminator
+pub fn other_delim(delim: char) -> Option<char> {
+    match delim {
+        '<' => Some('>'),
+        '(' => Some(')'),
+        '{' => Some('}'),
+        '[' => Some(']'),
+        '>' => Some('<'),
+        ')' => Some('('),
+        '}' => Some('{'),
+        ']' => Some('['),
+        '\n' => Some('\n'),
+        _ => unimplemented!(),
+    }
+}
+
+/// Returns the position of the ending of the delimited string
+///
+/// # Example
+///
+/// ```
+/// let data = "<test><SUPERINNER!/></test>";
+/// let res = ni_rs::drange_end(&data, '>').unwrap();
+/// assert!(&data[..res] == "<test>" ||
+///         &data[..res] == "<test><SUPERINNER!/>" ||
+///         &data[..res] == "<test><SUPERINNER!/></test>");
+///
+/// let data = "Example HTML - not here";
+/// let res = ni_rs::drange_end(&data[13..], '>');
+/// assert_eq!(res, None);
+/// ```
+pub fn drange_end(data: &str, delim_close: char) -> Option<usize> {
+    let delim_open = other_delim(delim_close)?;
+
+    let mut depth = 0;
+    for (i, c) in data.chars().enumerate() {
+        if c == delim_close {
+            depth -= 1;
+            if depth == 0 {
+                if rdrand() & 3 == 0 {
+                    return Some(i + 1);
+                }
+
+                let next = drange_end(&data[i + 1..], delim_close);
+                match next {
+                    Some(x) => return Some(i + 1 + x),
+                    None => return Some(i + 1),
+                }
+            }
+        } else if c == delim_open {
+            depth += 1;
+        } else if (c as u8) & 128 > 0 {
+            return None;
+        }
+    }
+
+    return None;
+}
+
+/// Returns the first found delimited string in a given buffer
+///
+/// # Example
+///
+/// ```
+/// let data = "Example HTML <test></test>";
+/// let (start, end) = ni_rs::drange(data).unwrap();
+/// assert!(&data[start..end] == "<test>" ||
+///         &data[start..end] == "<test></test>");
+///
+///
+/// let data = "Example HTML - not here";
+/// let res = ni_rs::drange(data);
+/// assert_eq!(res, None);
+/// ```
+pub fn drange(data: &str) -> Option<(usize, usize)> {
+    let (delim_start, delim_char) = drange_start(data)?;
+    let wanted_delim = other_delim(delim_char)?;
+
+    let delim_end = drange_end(&data[delim_start..], wanted_delim)?;
+
+    // delim_end is the offset from the start of the delimited string
+    // need to add the start offset to get the correct index
+    //
+    // +1 to include the last character so we can do
+    // data[delim_start..delim_end]
+    return Some((delim_start, delim_start + delim_end));
+}
+
+/// Attempts to find another delimited string elsewhere in the input buffer
+///
+/// # Example
+///
+/// ```
+/// let data = "<test><SUPERINNER!/></test><h>";
+/// let (start, end) = ni_rs::other_drange(&data, '<').unwrap();
+/// assert!(&data[start..end] == "<test>" ||
+///         &data[start..end] == "<test><SUPERINNER!/>" ||
+///         &data[start..end] == "<test><SUPERINNER!/></test>" ||
+///         &data[start..end] == "<test><SUPERINNER!/></test><h>" ||
+///         &data[start..end] == "<SUPERINNER!/>" ||
+///         &data[start..end] == "<SUPERINNER!/></test>" ||
+///         &data[start..end] == "<SUPERINNER!/></test><h>" ||
+///         &data[start..end] == "</test>" ||
+///         &data[start..end] == "</test><h>" ||
+///         &data[start..end] == "<h>");
+/// ```
+fn other_drange(data: &str, delim_start: char) -> Option<(usize, usize)> {
+    let delim_close = other_delim(delim_start)?;
+
+    for _ in 0..32 {
+        let start = random(data.len());
+        let temp_data = &data[start..];
+        for (i, c) in temp_data.chars().enumerate() {
+            if c == delim_start {
+                let delim_end = drange_end(&temp_data[i..], delim_close);
+                match delim_end {
+                    None => continue,
+                    Some(end) => {
+                        return Some((start + i, start + i + end));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+pub fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
     let mut end = data.len();
     loop {
-        // let r = rdrand() % 24;
-        let r = 26;
+        let r = rdrand() % 35;
+        // let r = 30;
         println!("r: {}", r);
         match r {
             // match 7 {
@@ -320,7 +469,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
                 }
                 write!(output, "{}", &data[..position]);
                 for _ in 0..n {
-                    let r = random(end);
+                    let r = random(data.len() - 2) + 2;
                     write!(output, "{}", data.chars().take(r - 1).next().unwrap());
                 }
                 write!(output, "{}", &data[position..]);
@@ -398,11 +547,80 @@ pub fn mutate_area<W: Write>(data: &str, samples: Vec<&str>, output: &mut W) {
             29..35 => {
                 // delimited swap
 
+                match drange(data) {
+                    // If we didn't find a delimiter, try again for a different mutation strategy
+                    None => continue,
+                    Some((delim1_start, delim1_end)) => {
+                        let delim = data[delim1_start..].chars().nth(0).unwrap();
+                        match other_drange(data, delim) {
+                            None => continue,
+                            Some((delim2_start, delim2_end)) => {
+                                // Swap the two found delimited substrings
+                                write!(output, "{}", &data[..delim1_start]);
+                                write!(output, "{}", &data[delim2_start..delim2_end]);
+                                if (delim2_start > delim1_end) {
+                                    write!(output, "{}", &data[delim1_end..delim2_start]);
+                                }
+                                write!(output, "{}", &data[delim1_start..delim1_end]);
+                                write!(output, "{}", &data[delim2_end..]);
+                            }
+                        }
+                    }
+                }
+
                 return;
             }
             _ => unimplemented!(),
         }
     }
+}
+
+pub fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut W) {
+    let length = data.len();
+    if n == 0 {
+        write!(output, "{}", data);
+    } else if n == 1 || length < 256 {
+        mutate_area(data, samples, output);
+    } else {
+        let split = random(length);
+        let new_n = random(n / 2);
+        ni_area(&data[..split], samples, n - new_n, output);
+        ni_area(&data[split..], samples, new_n, output);
+    }
+}
+
+/// Mutate a corpus of samples
+pub fn mutate_samples(samples: Vec<&str>, rounds: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for _ in 0..rounds {
+        let mut output_sample = Vec::new();
+        let curr_sample = samples[random(samples.len())];
+        let n = if rdrand() & 3 == 1 {
+            1
+        } else {
+            2 + random(curr_sample.len() >> 12 + 8)
+        };
+        ni_area(curr_sample, &samples, n, &mut output_sample);
+        result.push(String::from_utf8(output_sample).unwrap());
+    }
+    result
+}
+
+/// Mutate a single sample
+pub fn mutate(data: &str, rounds: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for _ in 0..rounds {
+        let mut output_sample = Vec::new();
+        let curr_sample = samples[random(samples.len())];
+        let n = if rdrand() & 3 == 1 {
+            1
+        } else {
+            2 + random(curr_sample.len() >> 12 + 8)
+        };
+        ni_area(curr_sample, &samples, n, &mut output_sample);
+        result.push(String::from_utf8(output_sample).unwrap());
+    }
+    result
 }
 
 #[cfg(test)]
@@ -412,18 +630,28 @@ mod tests {
     #[test]
     fn test1() {
         let mut output = Vec::new();
-        let sample = "1234567890";
+        let sample = "<test><SUPERINNER!/></test><h>";
         let samples = vec![sample];
-        mutate_area(sample, samples, &mut output);
-        assert_eq!(str::from_utf8(&output).unwrap(), "bbbb")
+        mutate_area(sample, &samples, &mut output);
+        eprintln!(
+            "before {} after {}",
+            sample,
+            str::from_utf8(&output).unwrap()
+        );
+        // assert_eq!(str::from_utf8(&output).unwrap(), "bbbb")
+        assert!(false);
     }
 
-    /*
     #[test]
     fn test2() {
-        let mut output = Vec::new();
-        mutate_area("bbbbbb", &mut output);
-        assert_eq!(str::from_utf8(&output).unwrap(), "bbbb")
+        let samples = mutate_samples(
+            vec![
+                "<test><SUPERINNER!/></test><h>",
+                "<test></test>",
+                "<bingo><yay></bingo>",
+            ],
+            10,
+        );
+        assert_eq!(samples, vec!["test"]);
     }
-    */
 }

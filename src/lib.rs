@@ -327,8 +327,6 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
     let mut end = data.len();
     loop {
         let r = rdrand() % 35;
-        // let r = 30;
-        println!("r: {}", r);
         match r {
             // match 7 {
             0 => {
@@ -414,7 +412,7 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                 let mut l = 0;
                 aim(data, data, &mut j, &mut l);
 
-                println!("data: {} j: {}, l: {}", data, j, l);
+                // println!("data: {} j: {}, l: {}", data, j, l);
                 write!(output, "{}", &data[..j]);
                 write!(output, "{}", &data[l..]);
                 return;
@@ -507,7 +505,6 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
 
                 match result {
                     Some((num_start, num_end)) => {
-                        println!("{} -> {}", data, &data[num_start..num_end]);
                         // Write the data before the number
                         write!(output, "{}", &data[..num_start]);
 
@@ -515,7 +512,6 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                         if let Ok(num) = data[num_start..num_end].parse::<usize>() {
                             // Write the twiddled number
                             let twiddled = if num == 0 { twiddle(0) } else { twiddle(num) };
-                            println!("{} -> {}", num, twiddled);
                             write!(output, "{}", twiddled);
                         }
 
@@ -525,7 +521,7 @@ fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
                     _ => {
                         // Did not find a number in the data buffer
                         // Continue to try a different mutation method
-                        println!("Did not find number");
+                        // println!("Did not find number");
                         continue;
                     }
                 }

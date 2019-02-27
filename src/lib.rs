@@ -186,19 +186,7 @@ fn twiddle(val: usize) -> i64 {
 }
 
 /// Returns the position and found delimiter in an input buffer
-///
-/// # Example
-///
-/// ```
-/// let data = "Example HTML <test></test>";
-/// let res = ni_rs::drange_start(data);
-/// assert_eq!(res, Some((13, '<')));
-///
-/// let data = "Example HTML - not here";
-/// let res = ni_rs::drange_start(data);
-/// assert_eq!(res, None);
-/// ```
-pub fn drange_start(data: &str) -> Option<(usize, char)> {
+fn drange_start(data: &str) -> Option<(usize, char)> {
     data.match_indices(|c| match c {
         '[' | '<' | '(' | '\n' => true,
         _ => false,
@@ -208,7 +196,7 @@ pub fn drange_start(data: &str) -> Option<(usize, char)> {
 }
 
 /// Return the opposite deliminator for a given deliminator
-pub fn other_delim(delim: char) -> Option<char> {
+fn other_delim(delim: char) -> Option<char> {
     match delim {
         '<' => Some('>'),
         '(' => Some(')'),
@@ -238,7 +226,7 @@ pub fn other_delim(delim: char) -> Option<char> {
 /// let res = ni_rs::drange_end(&data[13..], '>');
 /// assert_eq!(res, None);
 /// ```
-pub fn drange_end(data: &str, delim_close: char) -> Option<usize> {
+fn drange_end(data: &str, delim_close: char) -> Option<usize> {
     let delim_open = other_delim(delim_close)?;
 
     let mut depth = 0;
@@ -281,7 +269,7 @@ pub fn drange_end(data: &str, delim_close: char) -> Option<usize> {
 /// let res = ni_rs::drange(data);
 /// assert_eq!(res, None);
 /// ```
-pub fn drange(data: &str) -> Option<(usize, usize)> {
+fn drange(data: &str) -> Option<(usize, usize)> {
     let (delim_start, delim_char) = drange_start(data)?;
     let wanted_delim = other_delim(delim_char)?;
 
@@ -335,7 +323,7 @@ fn other_drange(data: &str, delim_start: char) -> Option<(usize, usize)> {
     None
 }
 
-pub fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
+fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
     let mut end = data.len();
     loop {
         let r = rdrand() % 35;
@@ -575,7 +563,7 @@ pub fn mutate_area<W: Write>(data: &str, samples: &Vec<&str>, output: &mut W) {
     }
 }
 
-pub fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut W) {
+fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut W) {
     let length = data.len();
     if n == 0 {
         write!(output, "{}", data);
@@ -589,8 +577,21 @@ pub fn ni_area<W: Write>(data: &str, samples: &Vec<&str>, n: usize, output: &mut
     }
 }
 
-/// Mutate a corpus of samples
-pub fn mutate_samples(samples: Vec<&str>, rounds: usize) -> Vec<String> {
+/// Mutate a corpus of samples for a given number of results
+///
+/// # Example
+///
+/// ```
+/// let samples = vec![
+///             "<test><SUPERINNER!/></test><h>",
+///             "<test></test>",
+///             "<bingo><yay></bingo>"
+///             ];
+///
+/// let mutations = ni_rs::mutate_samples(samples, 32);
+/// assert_eq!(mutations.len(), 32);
+/// ```
+pub fn mutate_samples_n(samples: Vec<&str>, rounds: usize) -> Vec<String> {
     let mut result = Vec::new();
     for _ in 0..rounds {
         let mut output_sample = Vec::new();
@@ -606,21 +607,56 @@ pub fn mutate_samples(samples: Vec<&str>, rounds: usize) -> Vec<String> {
     result
 }
 
-/// Mutate a single sample
-pub fn mutate(data: &str, rounds: usize) -> Vec<String> {
-    let mut result = Vec::new();
-    for _ in 0..rounds {
-        let mut output_sample = Vec::new();
-        let curr_sample = samples[random(samples.len())];
-        let n = if rdrand() & 3 == 1 {
-            1
-        } else {
-            2 + random(curr_sample.len() >> 12 + 8)
-        };
-        ni_area(curr_sample, &samples, n, &mut output_sample);
-        result.push(String::from_utf8(output_sample).unwrap());
-    }
-    result
+/// Mutate a corpus of samples for a single result
+///
+/// # Example
+///
+/// ```
+/// let samples = vec![
+///             "<test><SUPERINNER!/></test><h>",
+///             "<test></test>",
+///             "<bingo><yay></bingo>"
+///             ];
+///
+/// let mutation = ni_rs::mutate_samples(samples);
+/// ```
+pub fn mutate_samples(samples: Vec<&str>) -> String {
+    mutate_samples_n(samples, 1)
+        .iter()
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
+/// Mutate a single sample for a single result
+///
+/// # Example
+///
+/// ```
+/// let data = "<test><SUPERINNER!/></test>";
+/// let res = ni_rs::mutate(data);
+/// ```
+pub fn mutate(data: &str) -> String {
+    let samples = vec![data];
+    mutate_samples_n(samples, 1)
+        .iter()
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
+/// Mutate a single sample for a given number of results
+///
+/// # Example
+///
+/// ```
+/// let data = "<test><SUPERINNER!/></test>";
+/// let mutations = ni_rs::mutate_n(data, 32);
+/// assert_eq!(mutations.len(), 32);
+/// ```
+pub fn mutate_n(data: &str, rounds: usize) -> Vec<String> {
+    let samples = vec![data];
+    mutate_samples_n(samples, rounds)
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ fn main() {
                 "<test></test>",
                 "<bingo><yay></bingo>"
                 ];
-    let mutations = ni_rs::mutate_samples(samples, 24);
+    let mutations = ni_rs::mutate_samples_n(samples, 24);
     assert_eq!(mutations.len(), 32);
 }
 ```

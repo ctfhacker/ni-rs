@@ -1,10 +1,10 @@
-## ni-rs
+# ni-rs
 
 Port of [ni.c](https://github.com/aoh/ni) to have a small data mutator in Rust.
 
-## Usage
+# Usage
 
-# Generate one mutation from a single buffer
+## Generate one mutation from a single buffer
 
 ```
 use std::fs::File;
@@ -18,7 +18,7 @@ fn main() {
 }
 ```
 
-# Generate 32 mutations from a single buffer
+## Generate 32 mutations from a single buffer
 
 ```
 fn main() {
@@ -28,9 +28,9 @@ fn main() {
 }
 ```
 
-## Corpus mutation
+# Corpus mutation
 
-# Generate one mutation from a corpus
+## Generate one mutation from a corpus
 
 ```
 use std::fs::File;
@@ -48,7 +48,7 @@ fn main() {
 }
 ```
 
-# Generate 24 mutations from a corpus
+## Generate 24 mutations from a corpus
 
 ```
 fn main() {
@@ -62,6 +62,6 @@ fn main() {
 }
 ```
 
-## Docs
+# Docs
 
 `cargo doc` for more information

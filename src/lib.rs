@@ -35,6 +35,10 @@ fn random(end: usize) -> usize {
 fn two_rand_numbers(len: usize) -> (usize, usize) {
     let mut a = rdrand() % len;
     let mut b = rdrand() % len;
+    if len == 1 {
+        return (0, 1);
+    }
+
     loop {
         if a != b {
             break;
@@ -110,9 +114,9 @@ fn aim(from: &[u8], to: &[u8], jump: &mut usize, land: &mut usize) {
 }
 
 /// Generate a random substring from one of the given corpus samples
-fn random_block<'a>(data: &'a [u8], samples: &Vec<&'a [u8]>) -> &'a [u8] {
+fn random_block<'a>(data: Vec<u8>, samples: &Vec<Vec<u8>>) -> Vec<u8> {
     let rand_index = random(samples.len());
-    let rand_sample = samples[rand_index];
+    let rand_sample = &samples[rand_index];
     if rand_sample.len() < 3 {
         return data;
     }
@@ -123,7 +127,7 @@ fn random_block<'a>(data: &'a [u8], samples: &Vec<&'a [u8]>) -> &'a [u8] {
         len = 4 * data.len();
     }
     len = random(len);
-    &rand_sample[len..]
+    rand_sample[len..].to_vec()
 }
 
 /// Returns the start and end indeces of a random number in the buffer
@@ -322,10 +326,11 @@ fn other_drange(data: &[u8], delim_start: u8) -> Option<(usize, usize)> {
     None
 }
 
-fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
+fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
     let end = data.len();
     loop {
         let r = rdrand() % 35;
+        // println!("mutate_area r: {}", r);
         match r {
             // match 7 {
             0 => {
@@ -348,7 +353,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
             }
             2..4 => {
                 // Jump / Overlapping sequences
-                if end == 0 {
+                if end <= 1 {
                     continue;
                 }
 
@@ -360,7 +365,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
             }
             4..6 => {
                 // Repeat characters
-                if end == 0 {
+                if end < 2 {
                     continue;
                 }
 
@@ -421,7 +426,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
                     continue;
                 }
 
-                let random_chunk = random_block(data, samples);
+                let random_chunk = random_block(data.to_vec(), samples);
                 let stend = random_chunk.len();
                 let dm = end >> 1;
                 let sm = stend >> 1;
@@ -438,7 +443,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
             }
             22..24 => {
                 // Insert semirandom bytes
-                if end == 0 {
+                if end < 2 {
                     continue;
                 }
 
@@ -486,7 +491,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
                 return;
             }
             25..29 => {
-                if end == 0 {
+                if end < 2 {
                     continue;
                 }
 
@@ -561,15 +566,29 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, output: &mut W) {
     }
 }
 
-fn ni_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, n: usize, output: &mut W) {
+fn ni_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, n: usize, output: &mut W) {
     let length = data.len();
+    // println!("ni_area: data.len(): {} n: {}", length, n);
     if n == 0 {
         output.write(data);
     } else if n == 1 || length < 256 {
         mutate_area(data, samples, output);
     } else {
-        let split = random(length);
-        let new_n = random(n / 2);
+        let mut split = random(length);
+        while split == 1 {
+            split = random(length);
+            // println!("Finding new split: {}", split);
+        }
+
+        // let new_n = random(n / 2);
+        let new_n = random(n - random(n));
+
+        /*
+        println!(
+            "ni_area: length: {} n: {} new_n: {} split: {}",
+            length, n, new_n, split
+        );
+        */
         ni_area(&data[..split], samples, n - new_n, output);
         ni_area(&data[split..], samples, new_n, output);
     }
@@ -589,17 +608,21 @@ fn ni_area<W: Write>(data: &[u8], samples: &Vec<&[u8]>, n: usize, output: &mut W
 /// let mutations = ni_rs::mutate_samples(samples, 32);
 /// assert_eq!(mutations.len(), 32);
 /// ```
-pub fn mutate_samples_n(samples: Vec<&[u8]>, rounds: usize) -> Vec<Vec<u8>> {
+pub fn mutate_samples_n(samples: &Vec<Vec<u8>>, rounds: usize) -> Vec<Vec<u8>> {
     let mut result = Vec::new();
+    // println!("mutate_samples_n: samples.len(): {}", samples.len());
+
     for _ in 0..rounds {
         let mut output_sample = Vec::new();
-        let curr_sample = samples[random(samples.len())];
+        let curr_sample = &samples[random(samples.len())];
+        // println!("mutate_sampels_n: curr_sample.len(): {}", curr_sample.len());
         let n = if rdrand() & 3 == 1 {
             1
         } else {
             2 + random(curr_sample.len() >> 12 + 8)
         };
-        ni_area(curr_sample, &samples, n, &mut output_sample);
+        // println!("mutate_sampels_n: n: {}", n);
+        ni_area(&curr_sample, &samples, n, &mut output_sample);
         result.push(output_sample);
     }
 
@@ -619,7 +642,7 @@ pub fn mutate_samples_n(samples: Vec<&[u8]>, rounds: usize) -> Vec<Vec<u8>> {
 ///
 /// let mutation = ni_rs::mutate_samples(samples);
 /// ```
-pub fn mutate_samples(samples: Vec<&[u8]>) -> Vec<u8> {
+pub fn mutate_samples(samples: &Vec<Vec<u8>>) -> Vec<u8> {
     mutate_samples_n(samples, 1)
         .iter()
         .next()
@@ -635,9 +658,9 @@ pub fn mutate_samples(samples: Vec<&[u8]>) -> Vec<u8> {
 /// let data = "<test><SUPERINNER!/></test>";
 /// let res = ni_rs::mutate(data);
 /// ```
-pub fn mutate(data: &[u8]) -> Vec<u8> {
+pub fn mutate(data: Vec<u8>) -> Vec<u8> {
     let samples = vec![data];
-    mutate_samples_n(samples, 1)
+    mutate_samples_n(&samples, 1)
         .iter()
         .next()
         .unwrap()
@@ -653,9 +676,9 @@ pub fn mutate(data: &[u8]) -> Vec<u8> {
 /// let mutations = ni_rs::mutate_n(data, 32);
 /// assert_eq!(mutations.len(), 32);
 /// ```
-pub fn mutate_n(data: &[u8], rounds: usize) -> Vec<Vec<u8>> {
+pub fn mutate_n(data: Vec<u8>, rounds: usize) -> Vec<Vec<u8>> {
     let samples = vec![data];
-    mutate_samples_n(samples, rounds)
+    mutate_samples_n(&samples, rounds)
 }
 
 #[cfg(test)]

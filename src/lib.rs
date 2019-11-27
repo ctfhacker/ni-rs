@@ -9,6 +9,41 @@ const AIMAX: usize = 512;
 const AIMLEN: usize = 1024;
 const BUFSIZE: usize = 4096;
 
+fn rotl64(x: u64, k: u64) -> u64 {
+    (x << k) | (x >> (64 - k))
+}
+
+/// Implementation from http://prng.di.unimi.it/xoshiro128plusplus.c
+pub struct Xoshiro256StarStar {
+    val0: u64,
+    val1: u64,
+    val2: u64,
+    val3: u64,
+}
+
+impl Xoshiro256StarStar {
+    pub fn new() -> Xoshiro256StarStar {
+        Xoshiro256StarStar {
+            val0: rdrand() as u64,
+            val1: rdrand() as u64,
+            val2: rdrand() as u64,
+            val3: rdrand() as u64,
+        }
+    }
+
+    pub fn rand(&mut self) -> u64 {
+        let res = rotl64(self.val1.wrapping_mul(5), 7).wrapping_mul(9);
+        let t = self.val1 << 17;
+        self.val2 ^= self.val0;
+        self.val3 ^= self.val1;
+        self.val1 ^= self.val2;
+        self.val0 ^= self.val3;
+        self.val2 ^= t;
+        self.val3 = rotl64(self.val3, 45);
+        res
+    }
+}
+
 /// Wrapper around `rdrand` instruction to generate a random number
 fn rdrand() -> usize {
     let ret: u64;
@@ -117,11 +152,11 @@ fn aim(from: &[u8], to: &[u8], jump: &mut usize, land: &mut usize) {
 fn random_block<'a>(data: Vec<u8>, samples: &Vec<Vec<u8>>) -> Vec<u8> {
     let rand_index = random(samples.len());
     let rand_sample = &samples[rand_index];
+    let start = random(rand_sample.len() - 2);
     if rand_sample.len() < 3 {
         return data;
     }
 
-    let start = random(rand_sample.len() - 2);
     let mut len = rand_sample.len() - start;
     if len > 4 * data.len() {
         len = 4 * data.len();
@@ -336,9 +371,9 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
             0 => {
                 // Insert a random byte
                 let position = random(end);
-                output.write(&data[..position]);
-                output.write(&[rand_u8()]);
-                output.write(&data[position..]);
+                let _ = output.write(&data[..position]);
+                let _ = output.write(&[rand_u8()]);
+                let _ = output.write(&data[position..]);
                 return;
             }
             1 => {
@@ -347,8 +382,8 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 if position + 1 >= end {
                     continue;
                 }
-                output.write(&data[..position]);
-                output.write(&data[position + 1..]);
+                let _ = output.write(&data[..position]);
+                let _ = output.write(&data[position + 1..]);
                 return;
             }
             2..4 => {
@@ -359,8 +394,8 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
 
                 // Generate two random numbers where a < b
                 let (a, b) = two_rand_numbers(end);
-                output.write(&data[..a]);
-                output.write(&data[b..]);
+                let _ = output.write(&data[..a]);
+                let _ = output.write(&data[b..]);
                 return;
             }
             4..6 => {
@@ -380,7 +415,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 let (s, e) = two_rand_numbers(end);
                 let mut len = e - s;
 
-                output.write(&data[..s]);
+                let _ = output.write(&data[..s]);
 
                 if len * n > 0x8000000 {
                     len = rdrand() % 1024 + 2;
@@ -388,22 +423,22 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
 
                 // Insert some substring `n` times
                 for _ in 0..n {
-                    output.write(&data[s..s + len]);
+                    let _ = output.write(&data[s..s + len]);
                 }
 
                 // Write the rest of the string
-                output.write(&data[s..]);
+                let _ = output.write(&data[s..]);
                 return;
             }
             6 => {
                 // Insert random data
                 let position = random(end);
                 let n = rdrand() % 1022 + 2;
-                output.write(&data[..position]);
+                let _ = output.write(&data[..position]);
                 for _ in 0..n {
-                    output.write(&[rand_u8()]);
+                    let _ = output.write(&[rand_u8()]);
                 }
-                output.write(&data[position..]);
+                let _ = output.write(&data[position..]);
                 return;
             }
             7..13 => {
@@ -416,8 +451,8 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 let mut l = 0;
                 aim(data, data, &mut j, &mut l);
 
-                output.write(&data[..j]);
-                output.write(&data[l..]);
+                let _ = output.write(&data[..j]);
+                let _ = output.write(&data[l..]);
                 return;
             }
             13..22 => {
@@ -433,12 +468,12 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 let mut j = 0;
                 let mut l = 1;
                 aim(&data[..dm], &random_chunk[..sm], &mut j, &mut l);
-                output.write(&data[..j]);
+                let _ = output.write(&data[..j]);
 
                 let buff = &random_chunk[sm..];
                 aim(buff, &data[j..], &mut j, &mut l);
-                output.write(&buff[..j]);
-                output.write(&data[l..]);
+                let _ = output.write(&buff[..j]);
+                let _ = output.write(&data[l..]);
                 return;
             }
             22..24 => {
@@ -456,12 +491,12 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 if n == 0 {
                     n = 2;
                 }
-                output.write(&data[..position]);
+                let _ = output.write(&data[..position]);
                 for _ in 0..n {
                     let r = random(data.len() - 2) + 2;
-                    output.write(&[data[r - 1]]);
+                    let _ = output.write(&[data[r - 1]]);
                 }
-                output.write(&data[position..]);
+                let _ = output.write(&data[position..]);
                 return;
             }
             24 => {
@@ -476,17 +511,17 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                     _ => random(32) + a + 2,
                 };
 
-                output.write(&data[..a]);
+                let _ = output.write(&data[..a]);
                 for _ in a..b {
                     let r = random(end - 1);
 
                     // Access to a single character in &[u8]
-                    output.write(&[data[r]]);
+                    let _ = output.write(&[data[r]]);
                 }
 
                 // Possible b can be longer than data
                 if end > b {
-                    output.write(&data[b..]);
+                    let _ = output.write(&data[b..]);
                 }
                 return;
             }
@@ -509,7 +544,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 match result {
                     Some((num_start, num_end)) => {
                         // Write the data before the number
-                        output.write(&data[..num_start]);
+                        let _ = output.write(&data[..num_start]);
 
                         // Try to parse the found number into a usize
                         if let Ok(num) = str::from_utf8(&data[num_start..num_end])
@@ -519,11 +554,11 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                             // Write the twiddled number
                             let twiddled = if num == 0 { twiddle(0) } else { twiddle(num) };
                             let raw_bytes: [u8; 8] = unsafe { std::mem::transmute(twiddled) };
-                            output.write(&raw_bytes);
+                            let _ = output.write(&raw_bytes);
                         }
 
                         // Write the rest of the buffer
-                        output.write(&data[num_end..]);
+                        let _ = output.write(&data[num_end..]);
                     }
                     _ => {
                         // Did not find a number in the data buffer
@@ -547,13 +582,13 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                             None => continue,
                             Some((delim2_start, delim2_end)) => {
                                 // Swap the two found delimited substrings
-                                output.write(&data[..delim1_start]);
-                                output.write(&data[delim2_start..delim2_end]);
+                                let _ = output.write(&data[..delim1_start]);
+                                let _ = output.write(&data[delim2_start..delim2_end]);
                                 if delim2_start > delim1_end {
-                                    output.write(&data[delim1_end..delim2_start]);
+                                    let _ = output.write(&data[delim1_end..delim2_start]);
                                 }
-                                output.write(&data[delim1_start..delim1_end]);
-                                output.write(&data[delim2_end..]);
+                                let _ = output.write(&data[delim1_start..delim1_end]);
+                                let _ = output.write(&data[delim2_end..]);
                             }
                         }
                     }
@@ -570,7 +605,7 @@ fn ni_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, n: usize, output: &mut
     let length = data.len();
     // println!("ni_area: data.len(): {} n: {}", length, n);
     if n == 0 {
-        output.write(data);
+        let _ = output.write(data);
     } else if n == 1 || length < 256 {
         mutate_area(data, samples, output);
     } else {
@@ -679,37 +714,4 @@ pub fn mutate(data: Vec<u8>) -> Vec<u8> {
 pub fn mutate_n(data: Vec<u8>, rounds: usize) -> Vec<Vec<u8>> {
     let samples = vec![data];
     mutate_samples_n(&samples, rounds)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test1() {
-        let mut output = Vec::new();
-        let sample = "<test><SUPERINNER!/></test><h>";
-        let samples = vec![sample];
-        mutate_area(sample, &samples, &mut output);
-        eprintln!(
-            "before {} after {}",
-            sample,
-            str::from_utf8(&output).unwrap()
-        );
-        // assert_eq!(str::from_utf8(&output).unwrap(), "bbbb")
-        assert!(false);
-    }
-
-    #[test]
-    fn test2() {
-        let samples = mutate_samples(
-            vec![
-                "<test><SUPERINNER!/></test><h>",
-                "<test></test>",
-                "<bingo><yay></bingo>",
-            ],
-            10,
-        );
-        assert_eq!(samples, vec!["test"]);
-    }
 }

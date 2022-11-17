@@ -1,4 +1,3 @@
-#![feature(asm)]
 #![feature(exclusive_range_pattern)]
 
 use std::io::Write;
@@ -21,13 +20,18 @@ pub struct Xoshiro256StarStar {
     val3: u64,
 }
 
+/// Wrapper around `rdtsc` instruction to generate a random number
+fn rdtsc() -> usize {
+    unsafe { std::arch::x86_64::_rdtsc() as usize }
+}
+
 impl Xoshiro256StarStar {
     pub fn new() -> Xoshiro256StarStar {
         Xoshiro256StarStar {
-            val0: rdrand() as u64,
-            val1: rdrand() as u64,
-            val2: rdrand() as u64,
-            val3: rdrand() as u64,
+            val0: rdtsc() as u64,
+            val1: rdtsc() as u64,
+            val2: rdtsc() as u64,
+            val3: rdtsc() as u64,
         }
     }
 
@@ -44,16 +48,10 @@ impl Xoshiro256StarStar {
     }
 }
 
-/// Wrapper around `rdrand` instruction to generate a random number
-fn rdrand() -> usize {
-    let ret: u64;
-    unsafe { asm!("rdrand $0" : "=r"(ret)) }
-    ret as usize
-}
 
-/// Generate a random u8 leveraging `rdrand`
+/// Generate a random u8 leveraging `rdtsc`
 fn rand_u8() -> u8 {
-    (rdrand() % 255) as u8
+    (rdtsc() % 255) as u8
 }
 
 /// Generate a random number [0; end)
@@ -62,14 +60,14 @@ fn random(end: usize) -> usize {
         return 0;
     }
 
-    rdrand() % end
+    rdtsc() % end
 }
 
 /// Generate two random numbers that are not the same
 /// returns two numbers, the first is less than the second
 fn two_rand_numbers(len: usize) -> (usize, usize) {
-    let mut a = rdrand() % len;
-    let mut b = rdrand() % len;
+    let mut a = rdtsc() % len;
+    let mut b = rdtsc() % len;
     if len == 1 {
         return (0, 1);
     }
@@ -78,8 +76,8 @@ fn two_rand_numbers(len: usize) -> (usize, usize) {
         if a != b {
             break;
         }
-        a = rdrand() % len;
-        b = rdrand() % len;
+        a = rdtsc() % len;
+        b = rdtsc() % len;
     }
 
     if a > b {
@@ -214,7 +212,7 @@ fn twiddle(val: i64) -> i64 {
         }
 
         // Continue twiddling 50% of the time
-        if rdrand() & 1 == 0 {
+        if rdtsc() & 1 == 0 {
             break;
         }
     }
@@ -272,7 +270,7 @@ fn drange_end(data: &[u8], delim_close: u8) -> Option<usize> {
         if *c == delim_close {
             depth -= 1;
             if depth == 0 {
-                if rdrand() & 3 == 0 {
+                if rdtsc() & 3 == 0 {
                     return Some(i + 1);
                 }
 
@@ -364,7 +362,7 @@ fn other_drange(data: &[u8], delim_start: u8) -> Option<(usize, usize)> {
 fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
     let end = data.len();
     loop {
-        let r = rdrand() % 35;
+        let r = rdtsc() % 35;
         // println!("mutate_area r: {}", r);
         match r {
             // match 7 {
@@ -405,11 +403,11 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 }
 
                 let mut n = 8;
-                while rdrand() & 1 == 0 && n < 20000 {
+                while rdtsc() & 1 == 0 && n < 20000 {
                     n <<= 1;
                 }
 
-                n = rdrand() % n + 2;
+                n = rdtsc() % n + 2;
 
                 // Generate two random numbers where a < b
                 let (s, e) = two_rand_numbers(end);
@@ -418,7 +416,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 let _ = output.write(&data[..s]);
 
                 if len * n > 0x8000000 {
-                    len = rdrand() % 1024 + 2;
+                    len = rdtsc() % 1024 + 2;
                 }
 
                 // Insert some substring `n` times
@@ -433,7 +431,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
             6 => {
                 // Insert random data
                 let position = random(end);
-                let n = rdrand() % 1022 + 2;
+                let n = rdtsc() % 1022 + 2;
                 let _ = output.write(&data[..position]);
                 for _ in 0..n {
                     let _ = output.write(&[rand_u8()]);
@@ -506,7 +504,7 @@ fn mutate_area<W: Write>(data: &[u8], samples: &Vec<Vec<u8>>, output: &mut W) {
                 }
 
                 let a = random(end - 2);
-                let b = match rdrand() & 1 {
+                let b = match rdtsc() & 1 {
                     0 => random(std::cmp::min(BUFSIZE - 2, end - a - 2)) + a + 2,
                     _ => random(32) + a + 2,
                 };
@@ -651,7 +649,7 @@ pub fn mutate_samples_n(samples: &Vec<Vec<u8>>, rounds: usize) -> Vec<Vec<u8>> {
         let mut output_sample = Vec::new();
         let curr_sample = &samples[random(samples.len())];
         // println!("mutate_sampels_n: curr_sample.len(): {}", curr_sample.len());
-        let n = if rdrand() & 3 == 1 {
+        let n = if rdtsc() & 3 == 1 {
             1
         } else {
             2 + random(curr_sample.len() >> 12 + 8)
